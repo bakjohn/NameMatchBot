@@ -603,7 +603,7 @@
         "Description": "PyPhonetics Layer for Names Blog Post",
         "LayerName": "NamesBlogPostPyPhoneticsLayer",
         "Content": {
-          "PyPhoneticsLayerBucketName": {
+          "S3Bucket": {
             "Ref": "PyPhoneticsLayerBucketName"
           },
           "S3Key": "PyPhoneticsLayer.zip"
