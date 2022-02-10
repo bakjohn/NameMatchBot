@@ -8,15 +8,15 @@ To recreate the bot and names database used for the blog post you will need 2 un
 1. Upload the Lambda Layer for PyPhonetics library to S3.
     a. Create s3 bucket with a unique name, replace *unique-bucket-name-1* with a unique name of your choice. This bucket will be used to store our Python dependency for the Bot Lambda. 
         
-        ```aws s3 mb s3://unique-bucket-name-1 --region <region> ```
+        aws s3 mb s3://unique-bucket-name-1 --region <region>
         
     b. Upload Lambda Layer to your S3 bucket from previous step.
     
-        ```aws s3 cp PyPhoneticsLayer.zip s3://unique-bucket-name-1```
+        aws s3 cp PyPhoneticsLayer.zip s3://unique-bucket-name-1
         
     c. Upload Cloud Formation Template to the S3 bucket from step a. 
     
-        ```aws s3 cp BlogPost-Infra-CFN.json s3://unique-bucket-name-1```
+        aws s3 cp BlogPost-Infra-CFN.json s3://unique-bucket-name-1
         
 2. Execute the CloudFormation script. Replace unique-bucket-name-1 with the name from the previous step and use a second unique bucket name for unique-bucket-name-2. This second bucket will be used to upload a CSV file of first and last names to populate our DynamoDb table of names. 
     
