@@ -7,30 +7,47 @@ To recreate the bot and names database used for the blog post you will need 2 un
 
 1. Upload the Lambda Layer for PyPhonetics library to S3.
     a. Create s3 bucket with a unique name, replace *unique-bucket-name-1* with a unique name of your choice. This bucket will be used to store our Python dependency for the Bot Lambda. 
+    
         
-        aws s3 mb s3://unique-bucket-name-1 --region <region>
+        aws s3 mb s3://<replace with unique-bucket-name-1> --region <region>
+        
         
     b. Upload Lambda Layer to your S3 bucket from previous step.
-    
-        aws s3 cp PyPhoneticsLayer.zip s3://unique-bucket-name-1
+        
+        
+        aws s3 cp PyPhoneticsLayer.zip s3://<replace with unique-bucket-name-1>
+        
         
     c. Upload Cloud Formation Template to the S3 bucket from step a. 
-    
-        aws s3 cp BlogPost-Infra-CFN.json s3://unique-bucket-name-1
+        
+        
+        aws s3 cp BlogPost-Infra-CFN.json s3://<replace with unique-bucket-name-1>
+        
         
 2. Execute the CloudFormation script. Replace unique-bucket-name-1 with the name from the previous step and use a second unique bucket name for unique-bucket-name-2. This second bucket will be used to upload a CSV file of first and last names to populate our DynamoDb table of names. 
     
-    ```aws cloudformation create-stack --stack-name namesblogpoststack --template-url https://<replace with unique-bucket-name-1>.s3.amazonaws.com/BlogPost-Infra-CFN.json --parameters ParameterKey=PyPhoneticsLayerBucketName,ParameterValue=<replace with unique-bucket-name-1> ParameterKey=BucketName,ParameterValue=<replace with unique-bucket-name-2>  --capabilities CAPABILITY_NAMED_IAM --region <region>```
+    ```
+    aws cloudformation create-stack --stack-name namesblogpoststack \
+        --template-url https://<replace with unique-bucket-name-1>.s3.amazonaws.com/BlogPost-Infra-CFN.json \
+        --parameters    ParameterKey=PyPhoneticsLayerBucketName,ParameterValue=<replace with unique-bucket-name-1> \
+                        ParameterKey=BucketName,ParameterValue=<replace with unique-bucket-name-2>  \
+        --capabilities CAPABILITY_NAMED_IAM \
+        --region <region>  
+    ```
     
 3. Verify the CloudFormation script has completed successfully. The cloudformation stack will take several minutes to finish executing. After a few minutes then execute the following command.
 
-    ``` aws cloudformation describe-stacks --stack-name namesblogpoststack --region <region> | grep 'StackStatus'```
+   ```
+    aws cloudformation describe-stacks --stack-name namesblogpoststack --region <region> | grep 'StackStatus'
+   ``` 
     
     When the status is reported back as ```CREATE_COMPLETE``` then proceed to step 4. 
     
-4. When the cloud formation stack is created successfully then upload the names.csv file to the S3 Bucket used as unique-bucket-name-2 in step 2. This step populates the NamesTable with 50 sample names and will trigger the bigram tables to be populated as well. 
+4. After the cloud formation stack is created successfully then upload the names.csv file to the S3 Bucket used as unique-bucket-name-2 in step 2. This step populates the NamesTable with 50 sample names and will trigger the bigram tables to be populated as well. 
     
-    ```aws s3 cp names.csv s3://<replace with unique-bucket-name-2>```
+    ```
+    aws s3 cp names.csv s3://<replace with unique-bucket-name-2>
+    ```
 
 
 ## Bot Usage
