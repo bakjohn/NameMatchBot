@@ -1,0 +1,1403 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Metadata": {},
+  "Parameters": {
+    "PyPhoneticsLayerBucketName": {
+      "Description": "Name of the S3 bucket you have deployed the PyPhonetics Layer file to.",
+      "Type": "String",
+      "ConstraintDescription": "Must be a valid bucket name."
+    },
+    "BucketName": {
+      "Description": "Name of the S3 bucket you will deploy the Names CSV file to.",
+      "Type": "String",
+      "ConstraintDescription": "Must be a valid bucket name."
+    }
+  },
+  "Resources": {
+    "NamesTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": "NamesTable",
+        "ProvisionedThroughput": {
+          "ReadCapacityUnits": 5,
+          "WriteCapacityUnits": 5
+        },
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "ID",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "ID",
+            "KeyType": "HASH"
+          }
+        ],
+        "StreamSpecification": {
+          "StreamViewType": "NEW_AND_OLD_IMAGES"
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "NamesTable"
+          }
+        ]
+      }
+    },
+    "FirstNameToBiGramIndex": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": "FirstNameToBiGramIndex",
+        "ProvisionedThroughput": {
+          "ReadCapacityUnits": 5,
+          "WriteCapacityUnits": 5
+        },
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "bigram",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "bigram",
+            "KeyType": "HASH"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "FirstNameToBiGramIndex"
+          }
+        ]
+      }
+    },
+    "LastNameToBiGramIndex": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": "LastNameToBiGramIndex",
+        "ProvisionedThroughput": {
+          "ReadCapacityUnits": 5,
+          "WriteCapacityUnits": 5
+        },
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "bigram",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "bigram",
+            "KeyType": "HASH"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "LastNameToBiGramIndex"
+          }
+        ]
+      }
+    },
+    "LambdaRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com",
+                  "s3.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path": "/",
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+          "arn:aws:iam::aws:policy/AWSLambdaInvocation-DynamoDB",
+          "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
+        ],
+        "Policies": [
+          {
+            "PolicyName": "policyname",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Resource": "*",
+                  "Action": [
+                    "dynamodb:PutItem",
+                    "dynamodb:BatchWriteItem"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "myNamesBlogPostNameToBiGram": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Handler": "index.lambda_handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "DDBTriggerLambdaRole",
+            "Arn"
+          ]
+        },
+        "Code": {
+          "ZipFile": {
+            "Fn::Join": [
+              "\n",
+              [
+                "import json",
+                "import boto3",
+                "import boto3.dynamodb.conditions as conditions",
+                "",
+                "dynamodb = boto3.resource('dynamodb')",
+                "",
+                "def toBigrams(str):",
+                "    grams = []",
+                "    for i in enumerate(str):",
+                "        for j in enumerate(str[i[0] + 1:]):",
+                "            if i[1] == ' '  or j[1] == ' ':",
+                "                continue",
+                "",
+                "            target_gram = '({0},{1})'.format(i[1], j[1])",
+                "            if target_gram not in grams:",
+                "                grams.append(target_gram)",
+                "",
+                "    return grams",
+                "",
+                "",
+                "def writeBigrams(name, bigrams, tableName):",
+                "    nameBiGramIndex = dynamodb.Table(tableName)",
+                "    for g in bigrams:",
+                "        nameBiGramIndex.update_item(",
+                "            Key={",
+                "                'bigram': f'{g}',",
+                "            },",
+                "            UpdateExpression='ADD #names :n',",
+                "            ExpressionAttributeNames={",
+                "                '#names': 'names',",
+                "            },",
+                "            ExpressionAttributeValues={",
+                "                ':n': {name.lower()}",
+                "            })",
+                "",
+                "",
+                "def lambda_handler(event, context):",
+                "    print('DynamoDB Record: ' + json.dumps(event, indent=2))",
+                "",
+                "    for record in event['Records']:",
+                "        if record['eventName'] == 'INSERT':",
+                "            firstName = record['dynamodb']['NewImage']['FirstName']['S']",
+                "            lastName = record['dynamodb']['NewImage']['LastName']['S']",
+                "            firstNameGrams = toBigrams(firstName.lower())",
+                "            lastNameGrams = toBigrams(lastName.lower())",
+                "            print('Number of firstNameGrams: ' + str(len(firstNameGrams)))",
+                "            print('Number of lastNameGrams:' + str(len(lastNameGrams)))",
+                "            writeBigrams(firstName, firstNameGrams, 'FirstNameToBiGramIndex')",
+                "            writeBigrams(lastName, lastNameGrams, 'LastNameToBiGramIndex')",
+                "",
+                "    return 'Successfully processed {} records.'.format(len(event['Records']))"
+              ]
+            ]
+          }
+        },
+        "Runtime": "python3.9",
+        "Timeout": 900,
+        "MemorySize": 1024,
+        "Environment": {
+        }
+      }
+    },
+    "CsvToDDBLambdaFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Handler": "index.lambda_handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "LambdaRole",
+            "Arn"
+          ]
+        },
+        "Code": {
+          "ZipFile": {
+            "Fn::Join": [
+              "\n",
+              [
+                "import json",
+                "import boto3",
+                "import os",
+                "import csv",
+                "import codecs",
+                "import sys",
+                "",
+                "s3 = boto3.resource('s3')",
+                "dynamodb = boto3.resource('dynamodb')",
+                "",
+                "bucket = os.environ['bucket']",
+                "key = os.environ['key']",
+                "tableName = os.environ['table']",
+                "",
+                "def lambda_handler(event, context):",
+                "",
+                "",
+                "   #get() does not store in memory",
+                "   try:",
+                "       obj = s3.Object(bucket, key).get()['Body']",
+                "   except:",
+                "       print(\"S3 Object could not be opened. Check environment variable. \")",
+                "   try:",
+                "       table = dynamodb.Table(tableName)",
+                "   except:",
+                "       print(\"Error loading DynamoDB table. Check if table was created correctly and environment variable.\")",
+                "",
+                "   batch_size = 100",
+                "   batch = []",
+                "",
+                "   #DictReader is a generator; not stored in memory",
+                "   for row in csv.DictReader(codecs.getreader('utf-8')(obj)):",
+                "      if len(batch) >= batch_size:",
+                "         write_to_dynamo(batch)",
+                "         batch.clear()",
+                "",
+                "      batch.append(row)",
+                "",
+                "   if batch:",
+                "      write_to_dynamo(batch)",
+                "",
+                "   return {",
+                "      'statusCode': 200,",
+                "      'body': json.dumps('Uploaded to DynamoDB Table')",
+                "   }",
+                "",
+                "",
+                "def write_to_dynamo(rows):",
+                "   try:",
+                "      table = dynamodb.Table(tableName)",
+                "   except:",
+                "      print(\"Error loading DynamoDB table. Check if table was created correctly and environment variable.\")",
+                "",
+                "   try:",
+                "      with table.batch_writer() as batch:",
+                "         for i in range(len(rows)):",
+                "            batch.put_item(",
+                "               Item=rows[i]",
+                "            )",
+                "   except:",
+                "      print(\"Error executing batch_writer\")"
+              ]
+            ]
+          }
+        },
+        "Runtime": "python3.7",
+        "Timeout": 900,
+        "MemorySize": 3008,
+        "Environment": {
+          "Variables": {
+            "bucket": {
+              "Ref": "BucketName"
+            },
+            "key": "names.csv",
+            "table": "NamesTable"
+          }
+        }
+      }
+    },
+    "S3Bucket": {
+      "DependsOn": [
+        "CsvToDDBLambdaFunction",
+        "BucketPermission"
+      ],
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketName": {
+          "Ref": "BucketName"
+        },
+        "AccessControl": "BucketOwnerFullControl",
+        "NotificationConfiguration": {
+          "LambdaConfigurations": [
+            {
+              "Event": "s3:ObjectCreated:*",
+              "Function": {
+                "Fn::GetAtt": [
+                  "CsvToDDBLambdaFunction",
+                  "Arn"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "BucketPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Ref": "CsvToDDBLambdaFunction"
+        },
+        "Principal": "s3.amazonaws.com",
+        "SourceAccount": {
+          "Ref": "AWS::AccountId"
+        }
+      }
+    },
+    "DDBTriggerLambdaRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path": "/",
+        "Policies": [
+          {
+            "PolicyName": "DDBTriggerLambdaRolePolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:logs:*:*:*",
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Resource": "*",
+                  "Action": [
+                    "dynamodb:DescribeStream",
+                    "dynamodb:GetRecords",
+                    "dynamodb:GetShardIterator",
+                    "dynamodb:ListStreams",
+                    "dynamodb:BatchGetItem",
+                    "dynamodb:PutItem",
+                    "dynamodb:BatchWriteItem",
+                    "dynamodb:GetItem",
+                    "dynamodb:DeleteItem",
+                    "dynamodb:UpdateItem"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "DataTableStream": {
+      "Type": "AWS::Lambda::EventSourceMapping",
+      "Properties": {
+        "BatchSize": "1",
+        "Enabled": "True",
+        "EventSourceArn": {
+          "Fn::GetAtt": [
+            "NamesTable",
+            "StreamArn"
+          ]
+        },
+        "FunctionName": {
+          "Fn::GetAtt": [
+            "myNamesBlogPostNameToBiGram",
+            "Arn"
+          ]
+        },
+        "StartingPosition": "LATEST"
+      }
+    },
+    "BotRole" : {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+          "AssumeRolePolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Principal": {
+                    "Service": [
+                      "lexv2.amazonaws.com"
+                    ]
+                  },
+                  "Action": [
+                    "sts:AssumeRole"
+                  ]
+                }
+              ]
+          },
+          "Path": "/",
+          "Policies": [{
+            "PolicyName": "LexRuntimeRolePolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": {
+                "Effect": "Allow",
+                "Action": [
+                  "polly:SynthesizeSpeech", "comprehend:DetectSentiment", "lambda:invokeFunction"
+                ],
+                "Resource": "*"
+              }
+            }
+         }]
+      }
+    },
+    "NameMatchToDirectoryBot": {
+      "Type": "AWS::Lex::Bot",
+      "Properties": {
+        "Name": "NameMatchToDirectoryBot",
+        "RoleArn": {"Fn::GetAtt": [ "BotRole", "Arn" ]},
+        "DataPrivacy": {
+          "ChildDirected": "false"
+        },
+        "IdleSessionTTLInSeconds": "300",
+        "AutoBuildBotLocales": "true",
+        "BotLocales": [
+          {
+            "LocaleId": "en_US",
+            "Description": "Bot for the Names matching against a Directory Blog Post.",
+            "NluConfidenceThreshold": 0.5,
+            "VoiceSettings": {
+              "VoiceId": "Ivy"
+            },
+            "Intents": [
+              {
+                "Name": "NameIntent",
+                "FulfillmentCodeHook": {"Enabled":  "true"},
+                "DialogCodeHook": {"Enabled":  "true"},
+                "SampleUtterances": [
+                  {
+                    "Utterance": "I am ready"
+                  },
+                  {
+                    "Utterance": "ready"
+                  },
+                  {
+                    "Utterance": "start"
+                  }
+                ],
+                "Slots": [
+                  {
+                    "Name": "FirstNameSlot",
+                    "SlotTypeName": "AMAZON.FirstName",
+                    "ValueElicitationSetting": {
+                      "SlotConstraint": "Required",
+                      "PromptSpecification": {
+                        "MessageGroupsList": [{
+                            "Message": {
+                              "PlainTextMessage": {
+                                "Value": "What is your first name?"
+                              }
+                            }
+                          }],
+                        "MaxRetries": "3",
+                        "AllowInterrupt": "false"
+                      }
+                    }
+                  },
+                  {
+                    "Name": "LastNameSlot",
+                    "SlotTypeName": "AMAZON.LastName",
+                    "ValueElicitationSetting": {
+                      "SlotConstraint": "Required",
+                      "PromptSpecification": {
+                        "MessageGroupsList": [{
+                            "Message": {
+                              "PlainTextMessage": {
+                                "Value": "What is your last name?"
+                              }
+                            }
+                          }],
+                        "MaxRetries": "3",
+                        "AllowInterrupt": "false"
+                        }
+                      }
+                  }
+                ],
+                "SlotPriorities": [
+                  {
+                    "Priority": 1,
+                    "SlotName": "FirstNameSlot"
+                  },
+                  {
+                    "Priority": 2,
+                    "SlotName": "LastNameSlot"
+                  }
+                ]
+              },
+              {
+                "Name": "FallbackIntent",
+                "Description": "Default intent when no other intent matches",
+                "ParentIntentSignature": "AMAZON.FallbackIntent"
+              }
+            ]
+          }
+        ],
+        "BotTags": [],
+        "TestBotAliasTags": []
+      }
+    },
+    "BotLambdaPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": {"Fn::GetAtt": [ "NameMatchLambda", "Arn" ]},
+        "Action": "lambda:InvokeFunction",
+        "Principal": "lexv2.amazonaws.com",
+        "SourceArn": {
+          "Fn::Join": [
+            "",
+            [
+              "arn:aws:lex:",
+              {
+                "Ref": "AWS::Region"
+              },
+              ":",
+              {
+                "Ref": "AWS::AccountId"
+              },
+              ":bot-alias/",
+              {
+                "Fn::GetAtt": [
+                  "NameMatchToDirectoryBot",
+                  "Id"
+                ]
+              },
+              "/TSTALIASID"
+            ]
+          ]
+        }
+      }
+    },
+    "PyPhoneticsLayer" : {
+      "Type": "AWS::Lambda::LayerVersion",
+      "Properties" : {
+        "CompatibleArchitectures" : ["x86_64"],
+        "CompatibleRuntimes": ["python3.9", "python3.8", "python3.7", "python3.6"],
+        "Description": "PyPhonetics Layer for Names Blog Post",
+        "LayerName": "NamesBlogPostPyPhoneticsLayer",
+        "Content": {
+          "PyPhoneticsLayerBucketName": {
+            "Ref": "PyPhoneticsLayerBucketName"
+          },
+          "S3Key": "PyPhoneticsLayer.zip"
+        }
+      }
+    },
+    "NameMatchLambdaRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "Description": "Name Match Blog Post Lambda Role. Enables access to DDB, CW, etc.",
+        "MaxSessionDuration": 3600,
+        "Path": "/",
+        "AssumeRolePolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Principal": {
+                  "Service": [
+                    "lambda.amazonaws.com"
+                  ]
+                },
+                "Action": [
+                  "sts:AssumeRole"
+                ]
+              }
+            ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "NameMatchLambdaPolicy",
+            "PolicyDocument": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Action": [
+                            "application-autoscaling:DescribeScalableTargets",
+                            "application-autoscaling:DescribeScalingActivities",
+                            "application-autoscaling:DescribeScalingPolicies",
+                            "cloudwatch:DescribeAlarmHistory",
+                            "cloudwatch:DescribeAlarms",
+                            "cloudwatch:DescribeAlarmsForMetric",
+                            "cloudwatch:GetMetricStatistics",
+                            "cloudwatch:ListMetrics",
+                            "cloudwatch:GetMetricData",
+                            "datapipeline:DescribeObjects",
+                            "datapipeline:DescribePipelines",
+                            "datapipeline:GetPipelineDefinition",
+                            "datapipeline:ListPipelines",
+                            "datapipeline:QueryObjects",
+                            "dynamodb:BatchGetItem",
+                            "dynamodb:Describe*",
+                            "dynamodb:List*",
+                            "dynamodb:GetItem",
+                            "dynamodb:Query",
+                            "dynamodb:Scan",
+                            "dynamodb:PartiQLSelect",
+                            "dax:Describe*",
+                            "dax:List*",
+                            "dax:GetItem",
+                            "dax:BatchGetItem",
+                            "dax:Query",
+                            "dax:Scan",
+                            "ec2:DescribeVpcs",
+                            "ec2:DescribeSubnets",
+                            "ec2:DescribeSecurityGroups",
+                            "iam:GetRole",
+                            "iam:ListRoles",
+                            "kms:DescribeKey",
+                            "kms:ListAliases",
+                            "sns:ListSubscriptionsByTopic",
+                            "sns:ListTopics",
+                            "lambda:ListFunctions",
+                            "lambda:ListEventSourceMappings",
+                            "lambda:GetFunctionConfiguration",
+                            "resource-groups:ListGroups",
+                            "resource-groups:ListGroupResources",
+                            "resource-groups:GetGroup",
+                            "resource-groups:GetGroupQuery",
+                            "tag:GetResources",
+                            "kinesis:ListStreams",
+                            "kinesis:DescribeStream",
+                            "kinesis:DescribeStreamSummary"
+                        ],
+                        "Effect": "Allow",
+                        "Resource": "*"
+                    },
+                    {
+                        "Action": "cloudwatch:GetInsightRuleReport",
+                        "Effect": "Allow",
+                        "Resource": "arn:aws:cloudwatch:*:*:insight-rule/DynamoDBContributorInsights*"
+                    }
+                ]
+            }
+          },
+          {
+            "PolicyName": "NameMatchLambdaLoggingPolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "logs:CreateLogGroup",
+                  "Resource": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        "arn:aws:logs:",
+                        {
+                          "Ref": "AWS::Region"
+                        },
+                        ":",
+                        {
+                          "Ref": "AWS::AccountId"
+                        },
+                        ":*"
+                      ]
+                    ]
+                  }
+                },
+                {
+                    "Effect": "Allow",
+                    "Action": [
+                      "logs:CreateLogStream",
+                      "logs:PutLogEvents"
+                    ],
+                    "Resource": [{
+                      "Fn::Join": [
+                        "",
+                        [
+                          "arn:aws:logs:",
+                          {
+                            "Ref": "AWS::Region"
+                          },
+                          ":",
+                          {
+                            "Ref": "AWS::AccountId"
+                          },
+                          ":log-group:/aws/lambda/*"
+                        ]
+                      ]
+                  }]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "NameMatchLambda": {
+      "DependsOn": [
+        "PyPhoneticsLayer"
+      ],
+      "Type" : "AWS::Lambda::Function",
+      "Properties": {
+        "Handler": "index.lambda_handler",
+        "Architectures": ["x86_64"],
+        "Runtime": "python3.9",
+        "Code": {
+          "ZipFile": {
+              "Fn::Join":
+              [
+              "\n",
+                [
+                  "'''",
+                  "This lambda function is part of the Names Matching Blog Post for AWS Lex.",
+                  "'''",
+                  "import boto3",
+                  "from boto3.dynamodb.conditions import Attr",
+                  "import time",
+                  "import os",
+                  "import logging",
+                  "import distutils",
+                  "import distutils.util",
+                  "from pyphonetics import Soundex",
+                  "from pyphonetics.distance_metrics import levenshtein_distance",
+                  "",
+                  "logger = logging.getLogger()",
+                  "logger.setLevel(logging.INFO)",
+                  "",
+                  "dynamodb = boto3.resource('dynamodb')",
+                  "dynamodbClient = boto3.client('dynamodb')",
+                  "",
+                  "LEVENSHTEIN_THRESHOLD = 1",
+                  "",
+                  "",
+                  "def toBigrams(str):",
+                  "    grams = []",
+                  "    for i in enumerate(str):",
+                  "        for j in enumerate(str[i[0] + 1:]):",
+                  "            if i[1] == ' ' or j[1] == ' ':",
+                  "                continue",
+                  "",
+                  "            target_gram = '({0},{1})'.format(i[1], j[1])",
+                  "            if target_gram not in grams:",
+                  "                grams.append(target_gram)",
+                  "",
+                  "    return grams",
+                  "",
+                  "",
+                  "def query_possible_matches(biGrams, biGramIndexTableName):",
+                  "    biGramString = ','.join(\"'{}'\".format(value) for value in biGrams)  # flatten list into string",
+                  "    statement = f'SELECT \"names\" FROM {biGramIndexTableName} WHERE bigram IN [{biGramString}]'",
+                  "    response = dynamodbClient.execute_statement(Statement=statement)  # query for names with matching bigrams",
+                  "",
+                  "    namesWithMatchingBiGrams = set()",
+                  "    for results in response['Items']:",
+                  "        namesWithMatchingBiGrams.update(results['names']['SS'])",
+                  "",
+                  "    logger.info('Count of Names with Matching BiGrams:{}'.format(len(namesWithMatchingBiGrams)))",
+                  "",
+                  "    return namesWithMatchingBiGrams",
+                  "",
+                  "",
+                  "def does_name_match_with_letter_shift(targetName, biGramIndexTableName, numLetterThreshold):",
+                  "    targetGrams = toBigrams(targetName)",
+                  "    candidateNames = query_possible_matches(targetGrams, biGramIndexTableName)",
+                  "    matches = []",
+                  "    result = {'match': False, 'names': ''}",
+                  "    for name in candidateNames:",
+                  "        if levenshtein_distance(targetName.lower(), name.lower()) <= numLetterThreshold:",
+                  "            result['match'] = True",
+                  "            logger.info('Matched: {0}'.format(name))",
+                  "            matches.append(name)",
+                  "",
+                  "    if len(matches) > 1:  # sort by distance of the soundex from target",
+                  "        soundex = Soundex()",
+                  "        matches.sort(key=lambda n: levenshtein_distance(soundex.phonetics(n), soundex.phonetics(targetName)))",
+                  "",
+                  "    result['names'] = matches",
+                  "    return result",
+                  "",
+                  "",
+                  "def was_last_turn_spell_by_letter(sessionState):",
+                  "    if 'sessionAttributes' in sessionState and 'SpellByLetter' in sessionState['sessionAttributes']:",
+                  "        return bool(distutils.util.strtobool(sessionState['sessionAttributes']['SpellByLetter'])) == True",
+                  "",
+                  "    return False",
+                  "",
+                  "",
+                  "def does_first_name_spelled_exist_directory(firstName):",
+                  "    return does_name_match_with_letter_shift(firstName, 'FirstNameToBiGramIndex', LEVENSHTEIN_THRESHOLD)",
+                  "",
+                  "",
+                  "def does_last_name_spelled_exist_directory(lastName):",
+                  "    return does_name_match_with_letter_shift(lastName, 'LastNameToBiGramIndex', LEVENSHTEIN_THRESHOLD)",
+                  "",
+                  "",
+                  "def get_first_name_exist_in_directory(name):",
+                  "    namesTable = dynamodb.Table('NamesTable')",
+                  "    response = namesTable.scan(FilterExpression=Attr('FirstName').eq(name))  # check exact match",
+                  "    result = {'match': False, 'matches': []}",
+                  "    if 'Count' in response and response['Count'] > 0:",
+                  "        logger.info('Exact match found.')",
+                  "        result['match'] = True",
+                  "        for item in response['Items']:",
+                  "            result['matches'].append(item['FirstName'])",
+                  "    else:  # no exact match, check soundex",
+                  "        logger.info('No exact match found, trying Soundex.')",
+                  "        soundex = Soundex()",
+                  "        nameSoundex = soundex.phonetics(name)",
+                  "        response = namesTable.scan(FilterExpression=Attr('FirstNameSoundex').eq(nameSoundex))",
+                  "        if 'Count' in response and response['Count'] > 0:",
+                  "            logger.info('Soundex match found.')",
+                  "            result['match'] = True",
+                  "            for item in response['Items']:",
+                  "                result['matches'].append(item['FirstName'])",
+                  "            result['matches']",
+                  "        if len(result['matches']) > 1:",
+                  "            result['matches'].sort(key=lambda n: abs(len(n) - len(name)))  # sort list by len closest to the target name",
+                  "",
+                  "    return result",
+                  "",
+                  "",
+                  "def get_person_exist_in_directory(firstName, lastName):",
+                  "    namesTable = dynamodb.Table('NamesTable')",
+                  "    response = namesTable.scan(",
+                  "        FilterExpression=Attr('LastName').eq(lastName) & Attr('FirstName').eq(firstName))  # check exact match",
+                  "    result = {'match': False, 'matches': []}",
+                  "    if 'Count' in response and response['Count'] > 0:",
+                  "        logger.info('Exact match found.')",
+                  "        result['match'] = True",
+                  "        for item in response['Items']:",
+                  "            result['matches'].append(item['LastName'])",
+                  "    else:  # no exact match, check soundex",
+                  "        logger.info('No exact match found, trying Soundex.')",
+                  "        soundex = Soundex()",
+                  "        nameSoundex = soundex.phonetics(lastName)",
+                  "        response = namesTable.scan(",
+                  "            FilterExpression=Attr('LastNameSoundex').eq(nameSoundex) & Attr('FirstName').eq(firstName))",
+                  "        if 'Count' in response and response['Count'] > 0:",
+                  "            logger.info('Soundex match found.')",
+                  "            result['match'] = True",
+                  "            for item in response['Items']:",
+                  "                result['matches'].append(item['LastName'])",
+                  "            result['matches']",
+                  "        if len(result['matches']) > 1:",
+                  "            result['matches'].sort(key=lambda n: abs(len(n) - len(name)))  # sort list by len closest to the target name",
+                  "",
+                  "    return result",
+                  "",
+                  "",
+                  "def get_first_name_from_slot_value(intent):",
+                  "    return intent['slots']['FirstNameSlot']['value']['interpretedValue']",
+                  "",
+                  "",
+                  "def is_first_name_slot_filled(intent):",
+                  "    return type(intent['slots']['FirstNameSlot']) is dict",
+                  "",
+                  "",
+                  "def get_last_name_from_slot_value(intent):",
+                  "    return intent['slots']['LastNameSlot']['value']['interpretedValue']",
+                  "",
+                  "",
+                  "def is_last_name_slot_filled(intent):",
+                  "    return type(intent['slots']['LastNameSlot']) is dict",
+                  "",
+                  "",
+                  "def lambda_handler(event, context):",
+                  "    '''",
+                  "    Route the incoming request based on intent.",
+                  "    The JSON body of the request is provided in the event slot.",
+                  "    '''",
+                  "    # By default, treat the user request as coming from the America/New_York time zone.",
+                  "    os.environ['TZ'] = 'America/New_York'",
+                  "    time.tzset()",
+                  "    logger.info('===== START LEX NAME FULFILLMENT ====')",
+                  "    logger.info(event)",
+                  "    logger.info('intent: {}'.format(event['sessionState']['intent']))",
+                  "    intent = event['sessionState']['intent']",
+                  "    dialogAction = {'type': 'Delegate'}",
+                  "    message = []",
+                  "    sessionAttributes = {}",
+                  "",
+                  "    if is_last_name_slot_filled(intent):",
+                  "        if was_last_turn_spell_by_letter(event['sessionState']):",
+                  "            sessionAttributes.pop('SpellByLetter', None)  # erase the session state",
+                  "            logger.info('Previous turn was SpellByLetter, using Levenshtein.')",
+                  "            result = does_last_name_spelled_exist_directory(get_last_name_from_slot_value(intent))",
+                  "            if result['match']:",
+                  "                dialogAction = {'type': 'Close'}",
+                  "                resolvedName = result['names'][0]  # take the first one in the list",
+                  "                intent['slots']['LastNameSlot']['value'][",
+                  "                    'interpretedValue'] = resolvedName  # set our response to our resolved value",
+                  "                firstName = get_first_name_from_slot_value(intent)",
+                  "                lastName = resolvedName",
+                  "                message = [{'content': f'Thank you {firstName} {lastName}.', 'contentType': 'PlainText'}]",
+                  "            else:",
+                  "                dialogAction = {'type': 'Close'}",
+                  "                message = [{'content': 'Unable to recognize last name against directory.', 'contentType': 'PlainText'}]",
+                  "        else:",
+                  "            # try exact match with first name and last name",
+                  "            result = get_person_exist_in_directory(get_first_name_from_slot_value(intent),",
+                  "                                                   get_last_name_from_slot_value(intent))",
+                  "            if result['matches']:",
+                  "                dialogAction = {'type': 'Close'}",
+                  "                resolvedName = result['matches'][0]  # take the first one in the list",
+                  "                intent['slots']['LastNameSlot']['value'][",
+                  "                    'interpretedValue'] = resolvedName  # set our response to our resolved value",
+                  "                firstName = get_first_name_from_slot_value(intent)",
+                  "                lastName = resolvedName",
+                  "                message = [{'content': f'Thank you {firstName} {lastName}.', 'contentType': 'PlainText'}]",
+                  "            else:",
+                  "                dialogAction = {'type': 'ElicitSlot', 'slotElicitationStyle': 'SpellByLetter',",
+                  "                                'slotToElicit': 'LastNameSlot'}",
+                  "                message = [",
+                  "                    {'content': 'I failed to match your name against the directory, please spell out your last name.',",
+                  "                     'contentType': 'PlainText'}]",
+                  "                sessionAttributes['SpellByLetter'] = True",
+                  "",
+                  "    else:",
+                  "        if is_first_name_slot_filled(intent):",
+                  "            if was_last_turn_spell_by_letter(event['sessionState']):",
+                  "                sessionAttributes.pop('SpellByLetter', None)   # erase the session state",
+                  "                logger.info('Previous turn was SpellByLetter, using Levenshtein.')",
+                  "                result = does_first_name_spelled_exist_directory(get_first_name_from_slot_value(intent))",
+                  "                if result['match']:",
+                  "                    dialogAction = {'type': 'ElicitSlot', 'slotToElicit': 'LastNameSlot',",
+                  "                                    'slotElicitationStyle': 'Default'}",
+                  "                    resolvedName = result['names'][0]  # take the first one in the list",
+                  "                    intent['slots']['FirstNameSlot']['value'][",
+                  "                        'interpretedValue'] = resolvedName  # set our response to our resolved value",
+                  "                    message = [{'content': f'{resolvedName}, what is your last name?', 'contentType': 'PlainText'}]",
+                  "                else:",
+                  "                    dialogAction = {'type': 'Close'}",
+                  "                    message = [",
+                  "                        {'content': 'Unable to recognize first name against directory.', 'contentType': 'PlainText'}]",
+                  "            else:",
+                  "                result = get_first_name_exist_in_directory(get_first_name_from_slot_value(intent))",
+                  "                if result['match']:  # match, save top result and then elicit last name",
+                  "                    dialogAction = {'type': 'ElicitSlot', 'slotToElicit': 'LastNameSlot',",
+                  "                                    'slotElicitationStyle': 'Default'}",
+                  "                    resolvedName = result['matches'][0]  # take the first one in the list",
+                  "                    intent['slots']['FirstNameSlot']['value'][",
+                  "                        'interpretedValue'] = resolvedName  # set our response to our resolved value",
+                  "                    message = [{'content': f'{resolvedName}, what is your last name?', 'contentType': 'PlainText'}]",
+                  "                else:",
+                  "                    dialogAction = {'type': 'ElicitSlot', 'slotElicitationStyle': 'SpellByLetter',",
+                  "                                    'slotToElicit': 'FirstNameSlot'}",
+                  "                    message = [{",
+                  "                                   'content': 'I failed to match your name against the directory, please spell out your first name.',",
+                  "                                   'contentType': 'PlainText'}]",
+                  "                    sessionAttributes['SpellByLetter'] = True",
+                  "",
+                  "    myResponse = {",
+                  "        'sessionState': {",
+                  "            'dialogAction': dialogAction,",
+                  "            'intent': intent,",
+                  "            'sessionAttributes': sessionAttributes",
+                  "        },",
+                  "        'messages': message",
+                  "    }",
+                  "",
+                  "    logger.info(myResponse)",
+                  "    logger.info('===== END LEX NAME FULFILLMENT ====')",
+                  "",
+                  "    return myResponse"
+                ]
+              ]
+          }
+        },
+        "Description": "Names Blog Post Bot Lambda",
+        "MemorySize": 128,
+        "Timeout": 10,
+        "Role": {"Fn::GetAtt": [ "NameMatchLambdaRole", "Arn" ]},
+        "Layers": [
+          {
+            "Ref": "PyPhoneticsLayer"
+          }
+        ]
+      }
+    },
+    "AddLambdaToTestBotAliasLambdaRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "Description": "Role for Lambda which adds the bot to the test bot alias.",
+        "MaxSessionDuration": 3600,
+        "Path": "/",
+        "AssumeRolePolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Principal": {
+                  "Service": [
+                    "lambda.amazonaws.com"
+                  ]
+                },
+                "Action": [
+                  "sts:AssumeRole"
+                ]
+              }
+            ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "AddLambdaToTestBotAliasLambdaPolicy",
+            "PolicyDocument": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "cloudwatch:GetMetricStatistics",
+                            "cloudwatch:DescribeAlarms",
+                            "cloudwatch:DescribeAlarmsForMetric",
+                            "kms:DescribeKey",
+                            "kms:ListAliases",
+                            "lambda:GetPolicy",
+                            "lambda:ListFunctions",
+                            "lex:*",
+                            "polly:DescribeVoices",
+                            "polly:SynthesizeSpeech",
+                            "kendra:ListIndices",
+                            "iam:ListRoles",
+                            "s3:ListAllMyBuckets",
+                            "logs:DescribeLogGroups",
+                            "s3:GetBucketLocation"
+                        ],
+                        "Resource": [
+                            "*"
+                        ]
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "lambda:AddPermission",
+                            "lambda:RemovePermission"
+                        ],
+                        "Resource": "arn:aws:lambda:*:*:function:AmazonLex*",
+                        "Condition": {
+                            "StringEquals": {
+                                "lambda:Principal": "lex.amazonaws.com"
+                            }
+                        }
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "iam:GetRole"
+                        ],
+                        "Resource": [
+                            "arn:aws:iam::*:role/aws-service-role/lex.amazonaws.com/AWSServiceRoleForLexBots",
+                            "arn:aws:iam::*:role/aws-service-role/channels.lex.amazonaws.com/AWSServiceRoleForLexChannels",
+                            "arn:aws:iam::*:role/aws-service-role/lexv2.amazonaws.com/AWSServiceRoleForLexV2Bots*",
+                            "arn:aws:iam::*:role/aws-service-role/channels.lexv2.amazonaws.com/AWSServiceRoleForLexV2Channels*"
+                        ]
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "iam:CreateServiceLinkedRole"
+                        ],
+                        "Resource": [
+                            "arn:aws:iam::*:role/aws-service-role/lex.amazonaws.com/AWSServiceRoleForLexBots"
+                        ],
+                        "Condition": {
+                            "StringEquals": {
+                                "iam:AWSServiceName": "lex.amazonaws.com"
+                            }
+                        }
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "iam:CreateServiceLinkedRole"
+                        ],
+                        "Resource": [
+                            "arn:aws:iam::*:role/aws-service-role/channels.lex.amazonaws.com/AWSServiceRoleForLexChannels"
+                        ],
+                        "Condition": {
+                            "StringEquals": {
+                                "iam:AWSServiceName": "channels.lex.amazonaws.com"
+                            }
+                        }
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "iam:CreateServiceLinkedRole"
+                        ],
+                        "Resource": [
+                            "arn:aws:iam::*:role/aws-service-role/lexv2.amazonaws.com/AWSServiceRoleForLexV2Bots*"
+                        ],
+                        "Condition": {
+                            "StringEquals": {
+                                "iam:AWSServiceName": "lexv2.amazonaws.com"
+                            }
+                        }
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "iam:CreateServiceLinkedRole"
+                        ],
+                        "Resource": [
+                            "arn:aws:iam::*:role/aws-service-role/channels.lexv2.amazonaws.com/AWSServiceRoleForLexV2Channels*"
+                        ],
+                        "Condition": {
+                            "StringEquals": {
+                                "iam:AWSServiceName": "channels.lexv2.amazonaws.com"
+                            }
+                        }
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "iam:DeleteServiceLinkedRole",
+                            "iam:GetServiceLinkedRoleDeletionStatus"
+                        ],
+                        "Resource": [
+                            "arn:aws:iam::*:role/aws-service-role/lex.amazonaws.com/AWSServiceRoleForLexBots",
+                            "arn:aws:iam::*:role/aws-service-role/channels.lex.amazonaws.com/AWSServiceRoleForLexChannels",
+                            "arn:aws:iam::*:role/aws-service-role/lexv2.amazonaws.com/AWSServiceRoleForLexV2Bots*",
+                            "arn:aws:iam::*:role/aws-service-role/channels.lexv2.amazonaws.com/AWSServiceRoleForLexV2Channels*"
+                        ]
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "iam:PassRole"
+                        ],
+                        "Resource": [
+                            "arn:aws:iam::*:role/aws-service-role/lex.amazonaws.com/AWSServiceRoleForLexBots"
+                        ],
+                        "Condition": {
+                            "StringEquals": {
+                                "iam:PassedToService": [
+                                    "lex.amazonaws.com"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "iam:PassRole"
+                        ],
+                        "Resource": [
+                            "arn:aws:iam::*:role/aws-service-role/lexv2.amazonaws.com/AWSServiceRoleForLexV2Bots*"
+                        ],
+                        "Condition": {
+                            "StringEquals": {
+                                "iam:PassedToService": [
+                                    "lexv2.amazonaws.com"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "iam:PassRole"
+                        ],
+                        "Resource": [
+                            "arn:aws:iam::*:role/aws-service-role/channels.lexv2.amazonaws.com/AWSServiceRoleForLexV2Channels*"
+                        ],
+                        "Condition": {
+                            "StringEquals": {
+                                "iam:PassedToService": [
+                                    "channels.lexv2.amazonaws.com"
+                                ]
+                            }
+                        }
+                    }
+                ]
+            }
+          },
+          {
+            "PolicyName": "AddLambdaToTestBotAliasLambdaLoggingPolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "logs:CreateLogGroup",
+                  "Resource": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        "arn:aws:logs:",
+                        {
+                          "Ref": "AWS::Region"
+                        },
+                        ":",
+                        {
+                          "Ref": "AWS::AccountId"
+                        },
+                        ":*"
+                      ]
+                    ]
+                  }
+                },
+                {
+                    "Effect": "Allow",
+                    "Action": [
+                      "logs:CreateLogStream",
+                      "logs:PutLogEvents"
+                    ],
+                    "Resource": [{
+                      "Fn::Join": [
+                        "",
+                        [
+                          "arn:aws:logs:",
+                          {
+                            "Ref": "AWS::Region"
+                          },
+                          ":",
+                          {
+                            "Ref": "AWS::AccountId"
+                          },
+                          ":log-group:/aws/lambda/*"
+                        ]
+                      ]
+                  }]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "AddLambdaToTestBotAliasLambda": {
+        "Type" : "AWS::Lambda::Function",
+        "Properties": {
+          "Handler": "index.lambda_handler",
+          "Architectures": ["x86_64"],
+          "Runtime": "python3.9",
+          "Code": {
+            "ZipFile": {
+                "Fn::Join":
+                [
+                "\n",
+                  [
+                    "import json",
+                    "import boto3",
+                    "import logging",
+                    "import cfnresponse",
+                    "",
+                    "logger = logging.getLogger()",
+                    "logger.setLevel(logging.INFO)",
+                    "",
+                    "def lambda_handler(event, context):",
+                    "    client = boto3.client('lexv2-models')",
+                    "",
+                    "    logger.info('==== START UPDATE ALIAS ====')",
+                    "",
+                    "    logger.info(json.dumps(event, indent=3))",
+                    "",
+                    "    if 'RequestType' in event and event['RequestType'].lower() == 'delete':",
+                    "        logger.info('DELETE request, returning success and exiting.')",
+                    "        cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, 'myAddLambdaToTestAlias')",
+                    "        return",
+                    "",
+                    "    response = {}",
+                    "    try:",
+                    "        response = client.update_bot_alias(",
+                    "            botId=event['ResourceProperties']['BotId'],",
+                    "            botAliasId='TSTALIASID',",
+                    "            botAliasName='TestBotAlias',",
+                    "            botVersion='DRAFT',",
+                    "            botAliasLocaleSettings={",
+                    "                'en_US': {",
+                    "                    'enabled': True,",
+                    "                    'codeHookSpecification': {",
+                    "                        'lambdaCodeHook': {",
+                    "                            'lambdaARN': event['ResourceProperties']['NameMatchLambdaLambdaArn'],",
+                    "                            'codeHookInterfaceVersion': '1.0'",
+                    "                        }",
+                    "                    }",
+                    "                }",
+                    "            }",
+                    "        )",
+                    "",
+                    "        logger.info(response)",
+                    "",
+                    "        response = client.describe_bot_alias(",
+                    "            botId=event['ResourceProperties']['BotId'],",
+                    "            botAliasId='TSTALIASID'",
+                    "        )",
+                    "",
+                    "        logger.info(response)",
+                    "",
+                    "        response = client.build_bot_locale(",
+                    "          botId=event['ResourceProperties']['BotId']",
+                    "          botVersion='DRAFT'",
+                    "          localeId='en_US'",
+                    "         )",
+                    "",
+                    "         logger.info(response)",
+                    "    except BaseException as error:",
+                    "         print('An exception occurred: {}'.format(error))",
+                    "",
+                    "",
+                    "    logger.info('==== END UPDATE ALIAS ====')",
+                    "    responseData = {}",
+                    "",
+                    "    cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, 'myAddLambdaToTestAlias')",
+                    "",
+                    "    return {",
+                    "        'statusCode': 200,",
+                    "        'body': json.dumps('complete')",
+                    "    }"
+                  ]
+                ]
+            }
+          },
+          "Description": "Add Lambda to Test Bot Alias Lambda",
+          "MemorySize": 128,
+          "Timeout": 10,
+          "Role": {"Fn::GetAtt": [ "AddLambdaToTestBotAliasLambdaRole", "Arn" ]}
+        }
+      },
+    "AddLambdaToTestBotAliasCall": {
+      "DependsOn": [
+        "NameMatchLambda",
+        "NameMatchToDirectoryBot",
+        "AddLambdaToTestBotAliasLambda"
+      ],
+      "Type": "AWS::CloudFormation::CustomResource",
+      "Properties" : {
+        "ServiceToken": "arn:aws:lambda:us-west-2:151065682055:function:myAddLambdaToTestAlias",
+        "Region": {
+          "Ref": "AWS::Region"
+        },
+        "AccountId": {
+          "Ref": "AWS::AccountId"
+        },
+        "BotId": { "Fn::GetAtt": [ "NameMatchToDirectoryBot", "Id"] },
+        "NameMatchLambdaLambdaArn": {"Fn::GetAtt": [ "NameMatchLambda", "Arn" ]}
+      }
+    }
+  },
+  "Outputs" : {
+
+  }
+}
