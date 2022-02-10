@@ -20,7 +20,7 @@ To recreate the bot and names database used for the blog post you will need 2 un
         
 2. Execute the CloudFormation script. Replace unique-bucket-name-1 with the name from the previous step and use a second unique bucket name for unique-bucket-name-2. This second bucket will be used to upload a CSV file of first and last names to populate our DynamoDb table of names. 
     
-    ```aws cloudformation create-stack —stack-name namesblogpoststack —template-file s3://<replace unique-bucket-name-1>/BlogPost-Infra-CFN.json —parameters ParameterKey=PyPhoneticsLayerBucketName,ParameterValue=<replace unique-bucket-name-1>, ParameterKey=BucketName,ParameterValue=<replace unique-bucket-name-2>  —capabilities CAPABILITY_NAMED_IAM```
+    ```aws cloudformation create-stack --stack-name namesblogpoststack --template-url https://<replace with unique-bucket-name-1>.s3.amazonaws.com/BlogPost-Infra-CFN.json --parameters ParameterKey=PyPhoneticsLayerBucketName,ParameterValue=<replace with unique-bucket-name-1> ParameterKey=BucketName,ParameterValue=<replace with unique-bucket-name-2>  --capabilities CAPABILITY_NAMED_IAM --region <region>```
     
 3. Verify the CloudFormation script has completed successfully. The cloudformation stack will take several minutes to finish executing. After a few minutes then execute the following command.
 
@@ -28,9 +28,9 @@ To recreate the bot and names database used for the blog post you will need 2 un
     
     When the status is reported back as ```CREATE_COMPLETE``` then proceed to step 4. 
     
-4. When the cloud formation stack is created successfully then upload the names.csv file to the S3 Bucket. This step populates the NamesTable with 50 sample names and will trigger the bigram tables to be populated as well. 
+4. When the cloud formation stack is created successfully then upload the names.csv file to the S3 Bucket used as unique-bucket-name-2 in step 2. This step populates the NamesTable with 50 sample names and will trigger the bigram tables to be populated as well. 
     
-    ```aws s3 cp names.csv s3://<replace unique-bucket-name-2>```
+    ```aws s3 cp names.csv s3://<replace with unique-bucket-name-2>```
 
 
 ## Bot Usage
