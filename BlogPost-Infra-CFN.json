@@ -1348,12 +1348,12 @@
                     "        logger.info(response)",
                     "",
                     "        response = client.build_bot_locale(",
-                    "          botId=event['ResourceProperties']['BotId']",
-                    "          botVersion='DRAFT'",
+                    "          botId=event['ResourceProperties']['BotId'],",
+                    "          botVersion='DRAFT',",
                     "          localeId='en_US'",
                     "         )",
                     "",
-                    "         logger.info(response)",
+                    "        logger.info(response)",
                     "    except BaseException as error:",
                     "         print('An exception occurred: {}'.format(error))",
                     "",
@@ -1385,7 +1385,12 @@
       ],
       "Type": "AWS::CloudFormation::CustomResource",
       "Properties" : {
-        "ServiceToken": "arn:aws:lambda:us-west-2:151065682055:function:myAddLambdaToTestAlias",
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "AddLambdaToTestBotAliasLambda",
+            "Arn"
+          ]
+        },
         "Region": {
           "Ref": "AWS::Region"
         },
