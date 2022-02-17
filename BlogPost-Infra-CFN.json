@@ -901,7 +901,7 @@
                   "                result['matches'].append(item['LastName'])",
                   "            result['matches']",
                   "        if len(result['matches']) > 1:",
-                  "            result['matches'].sort(key=lambda n: abs(len(n) - len(name)))  # sort list by len closest to the target name",
+                  "            result['matches'].sort(key=lambda n: abs(len(n) - len(lastName)))  # sort list by len closest to the target name",
                   "",
                   "    return result",
                   "",
