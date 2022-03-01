@@ -6,38 +6,40 @@ Bot for matching names against a database of names.
 To recreate the bot and names database used for the blog post you will need 2 unique buckets in your AWS Account. One is used for the Lambda Layer which imports the PyPhonetics library (unique-bucket-1) and the second (unique-bucket-2) is used to populate the Names database.  
 
 1. Create the PyPhonetics Layer for AWS Lambda from the pip install.
-   a. Create a folder named 'python' in your current directory.
-   
-      mkdir python
-      
-   b. Install PyPhonetics into the python folder.
-      
-      pip install --target=./python PyPhonetics
-      
-   d. Zip the folder into a file named PyPhoneticsLayer.zip
-      
-      zip -r PyPhoneticsLayer.zip python
 
+   * Create a folder named 'python' in your current directory.
+      ```
+      mkdir python
+      ```
+   * Install PyPhonetics into the python folder.
+      ```
+      pip install --target=./python PyPhonetics
+      ```
+   * Zip the folder into a file named PyPhoneticsLayer.zip
+      ```
+      zip -r PyPhoneticsLayer.zip python
+      ```
 1. Upload the Lambda Layer for PyPhonetics library to S3.
-    a. Create s3 bucket with a unique name, replace *unique-bucket-name-1* with a unique name of your choice. This bucket will be used to store our Python dependency for the Bot Lambda. 
     
-        
+    * Create s3 bucket with a unique name, replace *unique-bucket-name-1* with a unique name of your choice. This bucket will be used to store our Python dependency for the Bot Lambda. 
+    
+        ```
         aws s3 mb s3://<replace with unique-bucket-name-1> --region <region>
+        ```
         
+    * Upload Lambda Layer to your S3 bucket from previous step.
         
-    b. Upload Lambda Layer to your S3 bucket from previous step.
-        
-        
+        ```
         aws s3 cp PyPhoneticsLayer.zip s3://<replace with unique-bucket-name-1>
+        ```
         
+    * Upload Cloud Formation Template to the S3 bucket from step a. 
         
-    c. Upload Cloud Formation Template to the S3 bucket from step a. 
-        
-        
+        ```
         aws s3 cp BlogPost-Infra-CFN.json s3://<replace with unique-bucket-name-1>
+        ```
         
-        
-2. Execute the CloudFormation script. Replace unique-bucket-name-1 with the name from the previous step and use a second unique bucket name for unique-bucket-name-2. This second bucket will be used to upload a CSV file of first and last names to populate our DynamoDb table of names. 
+1. Execute the CloudFormation script. Replace unique-bucket-name-1 with the name from the previous step and use a second unique bucket name for unique-bucket-name-2. This second bucket will be used to upload a CSV file of first and last names to populate our DynamoDb table of names. 
     
     ```
     aws cloudformation create-stack --stack-name namesblogpoststack \
@@ -48,7 +50,7 @@ To recreate the bot and names database used for the blog post you will need 2 un
         --region <region>  
     ```
     
-3. Verify the CloudFormation script has completed successfully. The cloudformation stack will take several minutes to finish executing. After a few minutes then execute the following command.
+1. Verify the CloudFormation script has completed successfully. The cloudformation stack will take several minutes to finish executing. After a few minutes then execute the following command.
 
    ```
     aws cloudformation describe-stacks --stack-name namesblogpoststack --region <region> | grep 'StackStatus'
@@ -56,7 +58,7 @@ To recreate the bot and names database used for the blog post you will need 2 un
     
     When the status is reported back as ```CREATE_COMPLETE``` then proceed to step 4. 
     
-4. After the cloud formation stack is created successfully then upload the names.csv file to the S3 Bucket used as unique-bucket-name-2 in step 2. This step populates the NamesTable with 50 sample names and will trigger the bigram tables to be populated as well. 
+1. After the cloud formation stack is created successfully then upload the names.csv file to the S3 Bucket used as unique-bucket-name-2 in step 2. This step populates the NamesTable with 50 sample names and will trigger the bigram tables to be populated as well. 
     
     ```
     aws s3 cp names.csv s3://<replace with unique-bucket-name-2>
