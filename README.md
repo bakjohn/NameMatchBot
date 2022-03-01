@@ -5,6 +5,19 @@ Bot for matching names against a database of names.
 
 To recreate the bot and names database used for the blog post you will need 2 unique buckets in your AWS Account. One is used for the Lambda Layer which imports the PyPhonetics library (unique-bucket-1) and the second (unique-bucket-2) is used to populate the Names database.  
 
+1. Create the PyPhonetics Layer for AWS Lambda from the pip install.
+   a. Create a folder named 'python' in your current directory.
+   
+      mkdir python
+      
+   b. Install PyPhonetics into the python folder.
+      
+      pip install --target=./python PyPhonetics
+      
+   d. Zip the folder into a file named PyPhoneticsLayer.zip
+      
+      zip -r PyPhoneticsLayer.zip python
+
 1. Upload the Lambda Layer for PyPhonetics library to S3.
     a. Create s3 bucket with a unique name, replace *unique-bucket-name-1* with a unique name of your choice. This bucket will be used to store our Python dependency for the Bot Lambda. 
     
