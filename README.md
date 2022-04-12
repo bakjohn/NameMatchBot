@@ -1,6 +1,11 @@
 # NameMatchBot
 Bot for matching names against a database of names. 
 
+## AWS Resources
+The following shows the resources created for Lex, Lambda, S3 and DynamoDB along with their relationships.
+
+![Resources](NamesBlogPostCFNResources.jpg)
+
 ## Installation Instructions
 
 To recreate the bot and names database used for the blog post you will need 2 unique buckets in your AWS Account. One is used for the Lambda Layer which imports the PyPhonetics library (unique-bucket-1) and the second (unique-bucket-2) is used to populate the Names database.  
