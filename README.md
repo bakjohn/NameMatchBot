@@ -56,7 +56,7 @@ To recreate the bot and names database used for the blog post you will need 2 un
     aws cloudformation describe-stacks --stack-name namesblogpoststack --region <region> | grep 'StackStatus'
    ``` 
     
-    When the status is reported back as ```CREATE_COMPLETE``` then proceed to step 4. 
+    When the status is reported back as ```CREATE_COMPLETE``` then proceed to the next step of importing names. 
     
 1. After the cloud formation stack is created successfully then upload the names.csv file to the S3 Bucket used as unique-bucket-name-2 in step 2. This step populates the NamesTable with 50 sample names and will trigger the bigram tables to be populated as well. If you would like to use more names there are two other files, one with 500 names (names500.csv) and one with 1000 names (names1000.csv). The 500 and 1000 name files can take a few minutes to finish importing. You can monitor progress in the DynamoDB graphs for each table and when the FirstNameBiGramIndex table and the LastNameBiGramIndex table stops showing write activity then the import has completed. The DynamoDB tables in the CloudFormation script are configured for on-demand scaling and pricing can be affected by the import process.  
     
