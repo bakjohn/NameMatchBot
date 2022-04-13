@@ -1,5 +1,5 @@
 # NameMatchBot
-Bot for matching names against a database of names. 
+Bot for matching names against a database of names using fuzzy matching techniques. The Bot's Lambda function uses a multiple step dialog strategy for eliciting the name from the user. First, it prompts for spoken name. If it cannot find an exact match then it attempts to use a Soundex code to match the name. If unsuccessful it then re-prompts the user to spell their name. The bot then uses a Levenshtein algorithm with a threshold of two letter mismatch to find matches.  
 
 ## AWS Resources
 The following shows the resources created for Lex, Lambda, S3 and DynamoDB along with their relationships.
